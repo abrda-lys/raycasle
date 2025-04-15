@@ -1,36 +1,35 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>3D Model Measurement</title>
+  <meta charset="utf-8" />
+  <title>3D Measurement Viewer</title>
   <style>
-    body { margin: 0; overflow: hidden; }
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
     .measurementLabel {
       font-family: monospace;
-      background-color: black;
+      background: black;
       color: white;
+      padding: 2px 4px;
+      border-radius: 4px;
     }
   </style>
 </head>
 <body>
   <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
-    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/controls/OrbitControls.js';
-    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/loaders/GLTFLoader.js';
-    import { CSS2DRenderer, CSS2DObject } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/renderers/CSS2DRenderer.js';
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
+    import { CSS2DRenderer, CSS2DObject } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/renderers/CSS2DRenderer.js';
 
     const scene = new THREE.Scene();
-    const light = new THREE.SpotLight(0xffffff, 1000);
-    light.position.set(12.5, 12.5, 12.5);
-    light.castShadow = true;
-    light.shadow.mapSize.set(1024, 1024);
-    scene.add(light);
 
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(15, 15, 15);
+    camera.position.set(10, 10, 10);
 
-    const renderer = new THREE.WebGLRenderer();
-    renderer.shadowMap.enabled = true;
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
@@ -44,16 +43,18 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
+    const light = new THREE.SpotLight(0xffffff, 1.5);
+    light.position.set(15, 40, 35);
+    scene.add(light);
+
     const pickableObjects = [];
+
     const loader = new GLTFLoader();
     loader.load('https://storage.yandexcloud.net/mymodels/kampus_panel.glb', (gltf) => {
       gltf.scene.traverse((child) => {
         if (child.isMesh) {
-          if (child.name === 'Plane') {
-            child.receiveShadow = true;
-          } else {
-            child.castShadow = true;
-          }
+          child.castShadow = true;
+          child.receiveShadow = true;
           pickableObjects.push(child);
         }
       });
@@ -65,11 +66,17 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
       labelRenderer.setSize(window.innerWidth, window.innerHeight);
-      render();
     });
 
-    let ctrlDown = false, lineId = 0, line, drawingLine = false;
+    let ctrlDown = false;
+    let lineId = 0;
+    let drawingLine = false;
+    let line;
     const measurementLabels = {};
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Control') {
         ctrlDown = true;
@@ -77,6 +84,7 @@
         renderer.domElement.style.cursor = 'crosshair';
       }
     });
+
     window.addEventListener('keyup', (e) => {
       if (e.key === 'Control') {
         ctrlDown = false;
@@ -90,73 +98,68 @@
       }
     });
 
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
     renderer.domElement.addEventListener('pointerdown', () => {
       if (!ctrlDown) return;
+
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(pickableObjects, false);
-      if (!intersects.length) return;
+      if (intersects.length === 0) return;
+
+      const pt = intersects[0].point;
 
       if (!drawingLine) {
-        const points = [intersects[0].point.clone(), intersects[0].point.clone()];
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }));
-        line.frustumCulled = false;
+        const geometry = new THREE.BufferGeometry().setFromPoints([pt.clone(), pt.clone()]);
+        line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xffffff }));
         scene.add(line);
 
         const div = document.createElement('div');
         div.className = 'measurementLabel';
-        div.textContent = '0.0m';
+        div.textContent = '0.00 m';
         const label = new CSS2DObject(div);
-        label.position.copy(intersects[0].point);
-        measurementLabels[lineId] = label;
+        label.position.copy(pt);
         scene.add(label);
-
+        measurementLabels[lineId] = label;
         drawingLine = true;
       } else {
         const pos = line.geometry.attributes.position.array;
-        pos[3] = intersects[0].point.x;
-        pos[4] = intersects[0].point.y;
-        pos[5] = intersects[0].point.z;
+        pos[3] = pt.x;
+        pos[4] = pt.y;
+        pos[5] = pt.z;
         line.geometry.attributes.position.needsUpdate = true;
         lineId++;
         drawingLine = false;
       }
     });
 
-    document.addEventListener('mousemove', (event) => {
-      event.preventDefault();
-      mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
-      mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
+    document.addEventListener('mousemove', (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-      if (drawingLine) {
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(pickableObjects, false);
-        if (intersects.length > 0) {
-          const pos = line.geometry.attributes.position.array;
-          const v0 = new THREE.Vector3(pos[0], pos[1], pos[2]);
-          const v1 = intersects[0].point;
-          pos[3] = v1.x;
-          pos[4] = v1.y;
-          pos[5] = v1.z;
-          line.geometry.attributes.position.needsUpdate = true;
-          const distance = v0.distanceTo(v1);
-          measurementLabels[lineId].element.textContent = distance.toFixed(2) + 'm';
-          measurementLabels[lineId].position.lerpVectors(v0, v1, 0.5);
-        }
-      }
+      if (!drawingLine) return;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(pickableObjects, false);
+      if (intersects.length === 0) return;
+
+      const pt = intersects[0].point;
+      const pos = line.geometry.attributes.position.array;
+      const start = new THREE.Vector3(pos[0], pos[1], pos[2]);
+      const end = pt;
+      pos[3] = pt.x;
+      pos[4] = pt.y;
+      pos[5] = pt.z;
+      line.geometry.attributes.position.needsUpdate = true;
+
+      const dist = start.distanceTo(end);
+      measurementLabels[lineId].element.textContent = dist.toFixed(2) + ' m';
+      measurementLabels[lineId].position.lerpVectors(start, end, 0.5);
     });
 
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
-      render();
-    }
-
-    function render() {
-      labelRenderer.render(scene, camera);
       renderer.render(scene, camera);
+      labelRenderer.render(scene, camera);
     }
 
     animate();
