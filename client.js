@@ -42,7 +42,7 @@ const pickableObjects = []
 
 const loader = new GLTFLoader()
 loader.load(
-  'models/simplescene.glb',
+  'simplescene.glb',
   function (gltf) {
     gltf.scene.traverse(function (child) {
       if (child.isMesh) {
